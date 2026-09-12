@@ -930,6 +930,29 @@
 	margin-left: auto;
 	color: #a0aaa3;
 }
+.menu-toggle {
+	display: block;
+	width: 30px;
+	height: 18px;
+	margin-left: auto;
+	padding: 2px;
+	border-radius: 999px;
+	background: #dce2dc;
+}
+.menu-toggle > span {
+	display: block;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #fff;
+	transition: margin-left 160ms ease;
+}
+.menu-toggle.on {
+	background: #d66a52;
+}
+.menu-toggle.on > span {
+	margin-left: 12px;
+}
 .page-menu-detail-heading {
 	gap: 7px;
 }
@@ -1661,6 +1684,15 @@
 .toggle.on span {
 	margin-left: 15px;
 }
+.setting-label-with-icon {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.setting-label-with-icon > svg {
+	color: #d4644e;
+	flex: 0 0 auto;
+}
 .privacy-note {
 	color: #75877b;
 	background: #f0f3ed;
@@ -2284,4 +2316,97 @@
 	.build-day-button {
 		padding: 8px 10px;
 	}
+}
+
+.app-shell.theme-dark {
+	background: #17231f;
+	color: #c8d5ce;
+	box-shadow: 0 0 80px rgba(0, 0, 0, 0.24);
+}
+.theme-dark .brand-mark,
+.theme-dark h1,
+.theme-dark h2,
+.theme-dark h3,
+.theme-dark strong,
+.theme-dark .weather-label,
+.theme-dark .location-selector,
+.theme-dark .text-button {
+	color: #e5eee8;
+}
+.theme-dark .section-kicker {
+	color: #91aaa0;
+}
+.theme-dark .icon-button,
+.theme-dark .avatar,
+.theme-dark .location-selector,
+.theme-dark .activity-picker,
+.theme-dark .hour,
+.theme-dark .full-forecast,
+.theme-dark .day-plan-card,
+.theme-dark .privacy-note,
+.theme-dark .profile-sheet,
+.theme-dark .page-menu {
+	background: #21342d;
+	border-color: #385247;
+	color: #c8d5ce;
+}
+.theme-dark .icon-button:hover,
+.theme-dark .hour.selected,
+.theme-dark .activity-picker-options button.chosen,
+.theme-dark .day-plan-activity-options button.selected {
+	background: #2d4b3f;
+}
+.theme-dark .updated,
+.theme-dark .forecast-source,
+.theme-dark .hour span,
+.theme-dark .hour small,
+.theme-dark .setting-row span,
+.theme-dark .privacy-note,
+.theme-dark .day-plan-item span:not(.day-plan-time),
+.theme-dark .profile-sheet > p {
+	color: #9eb3a9;
+}
+.theme-dark .setting-row,
+.theme-dark .daily-row {
+	border-color: #385247;
+}
+.theme-dark .activity-categories button,
+.theme-dark .day-plan-activity-options button,
+.theme-dark .profile-form input {
+	background: #1b2b25;
+	border-color: #385247;
+	color: #d9e6df;
+}
+.theme-dark .activity-categories button.active,
+.theme-dark .activity-grid button.chosen {
+	background: #365847;
+	color: #f3f8f4;
+}
+.theme-dark .day-plan-card {
+	background: #20372e;
+}
+.theme-dark .day-plan-badge {
+	background: #365847;
+	color: #e8f1eb;
+}
+.theme-dark .profile-avatar-preview {
+	background: #365847;
+	color: #f3d6c3;
+}
+.theme-dark .bottom-nav {
+	background: #21342d;
+	border-color: #385247;
+}
+.theme-dark .bottom-nav button {
+	color: #91aaa0;
+}
+.theme-dark .bottom-nav button.active {
+	background: #493b38;
+	color: #f0a18d;
+}
+.theme-dark .page-menu-item {
+	color: #d9e6df;
+}
+.theme-dark .page-menu-item:hover {
+	background: #2d4b3f;
 }

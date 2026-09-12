@@ -13,6 +13,7 @@ import {
 	Map,
 	MapPin,
 	Menu,
+	Moon,
 	Navigation,
 	Pencil,
 	Plus,
@@ -779,6 +780,9 @@ function App() {
 		() => localStorage.getItem("mausam-profile-name") || "Code In Club",
 	);
 	const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
+	const [isDarkMode, setIsDarkMode] = useState(
+		() => localStorage.getItem("mausam-dark-mode") === "on",
+	);
 	const [activity, setActivity] = useState(
 		() => localStorage.getItem("mausam-activity") || "Running",
 	);
@@ -805,6 +809,14 @@ function App() {
 	useEffect(
 		() => localStorage.setItem("mausam-profile-name", profileName),
 		[profileName],
+	);
+	useEffect(
+		() =>
+			localStorage.setItem(
+				"mausam-dark-mode",
+				isDarkMode ? "on" : "off",
+			),
+		[isDarkMode],
 	);
 	useEffect(() => {
 		localStorage.setItem(
@@ -1078,6 +1090,8 @@ function App() {
 					onBack={() => navigate("home")}
 					profileName={profileName}
 					onProfile={() => setIsProfileEditorOpen(true)}
+					isDarkMode={isDarkMode}
+					setIsDarkMode={setIsDarkMode}
 				/>
 			);
 		if (activeTab === "locations")
@@ -1088,6 +1102,8 @@ function App() {
 					onBack={() => navigate("home")}
 					profileName={profileName}
 					onProfile={() => setIsProfileEditorOpen(true)}
+					isDarkMode={isDarkMode}
+					setIsDarkMode={setIsDarkMode}
 				/>
 			);
 		if (activeTab === "personalize")
@@ -1101,6 +1117,8 @@ function App() {
 					onBack={() => navigate("home")}
 					profileName={profileName}
 					onProfile={() => setIsProfileEditorOpen(true)}
+					isDarkMode={isDarkMode}
+					setIsDarkMode={setIsDarkMode}
 				/>
 			);
 		return (
@@ -1486,7 +1504,7 @@ function App() {
 	};
 
 	return (
-		<main className="app-shell">
+		<main className={`app-shell ${isDarkMode ? "theme-dark" : ""}`}>
 			<div className="app-content">{renderContent()}</div>
 			{isProfileEditorOpen && (
 				<ProfileEditor
@@ -1562,7 +1580,14 @@ function ProfileEditor({ name, onSave, onClose }) {
 	);
 }
 
-function PageHeader({ eyebrow, title, onBack, onProfile }) {
+function PageHeader({
+	eyebrow,
+	title,
+	onBack,
+	onProfile,
+	isDarkMode,
+	setIsDarkMode,
+}) {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
 
 	return (
@@ -1593,6 +1618,19 @@ function PageHeader({ eyebrow, title, onBack, onProfile }) {
 						}}
 					>
 						<UserRound size={17} /> Profile
+					</button>
+					<button
+						className="page-menu-item"
+						type="button"
+						role="switch"
+						aria-checked={isDarkMode}
+						onClick={() => setIsDarkMode((enabled) => !enabled)}
+					>
+						<Moon size={17} />
+						<span>Dark mode</span>
+						<span className={`menu-toggle ${isDarkMode ? "on" : ""}`}>
+							<span />
+						</span>
 					</button>
 				</div>
 			)}
@@ -1809,7 +1847,12 @@ function RouteWeatherAlert({ route }) {
 	);
 }
 
-function RoutesView({ onBack, onProfile }) {
+function RoutesView({
+	onBack,
+	onProfile,
+	isDarkMode,
+	setIsDarkMode,
+}) {
 	const [isAddingRoute, setIsAddingRoute] = useState(false);
 	const [editingIndex, setEditingIndex] = useState(null);
 	const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
@@ -1957,6 +2000,8 @@ function RoutesView({ onBack, onProfile }) {
 				title="Your routes"
 				onBack={onBack}
 				onProfile={onProfile}
+				isDarkMode={isDarkMode}
+				setIsDarkMode={setIsDarkMode}
 			/>
 			<OpenRouteMap route={selectedRoute} />
 			{selectedRoute && <TrafficUpdates route={selectedRoute} />}
@@ -2197,7 +2242,14 @@ function RouteLocationField({ label, value, onChange, onSelect, placeholder }) {
 	);
 }
 
-function LocationsView({ location, onSelectLocation, onBack, onProfile }) {
+function LocationsView({
+	location,
+	onSelectLocation,
+	onBack,
+	onProfile,
+	isDarkMode,
+	setIsDarkMode,
+}) {
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState([]);
 	const [searchState, setSearchState] = useState("idle");
@@ -2304,6 +2356,8 @@ function LocationsView({ location, onSelectLocation, onBack, onProfile }) {
 				title="Your locations"
 				onBack={onBack}
 				onProfile={onProfile}
+				isDarkMode={isDarkMode}
+				setIsDarkMode={setIsDarkMode}
 			/>
 			<section className="page-section locations-page">
 				<div className="search-box">
@@ -2509,6 +2563,8 @@ function PersonalizeView({
 	onBack,
 	profileName,
 	onProfile,
+	isDarkMode,
+	setIsDarkMode,
 }) {
 	const [activeCategory, setActiveCategory] = useState("All");
 	const [dailyBriefingEnabled, setDailyBriefingEnabled] = useState(
@@ -2537,6 +2593,8 @@ function PersonalizeView({
 				title="Make it yours"
 				onBack={onBack}
 				onProfile={onProfile}
+				isDarkMode={isDarkMode}
+				setIsDarkMode={setIsDarkMode}
 			/>
 			<section className="page-section personalize-page">
 				<div className="profile-intro">
