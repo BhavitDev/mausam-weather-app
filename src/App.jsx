@@ -408,7 +408,7 @@ async function searchOpenRouteLocations(query, signal, count = 5) {
 			? `${query} Temple`
 			: query;
 	const response = await fetch(
-		`https://api.heigit.org/pelias/v1/search?api_key=${encodeURIComponent(apiKey)}&text=${encodeURIComponent(searchText)}&boundary.country=IND&size=${count}`,
+		`https://api.openrouteservice.org/geocode/search?api_key=${encodeURIComponent(apiKey)}&text=${encodeURIComponent(searchText)}&boundary.country=IND&size=${count}`,
 		{ signal },
 	);
 	if (!response.ok) throw new Error("OpenRouteService geocoding failed");
@@ -496,7 +496,7 @@ function OpenRouteMap({ route }) {
 				origin.bindTooltip(routeOrigin);
 				destination.bindTooltip(routeDestination);
 				return fetch(
-					"https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson",
+					"https://api.openrouteservice.org/v2/directions/driving-car/geojson",
 					{
 						method: "POST",
 						signal: controller.signal,
@@ -529,8 +529,13 @@ function OpenRouteMap({ route }) {
 				setRouteState("ready");
 			})
 			.catch((error) => {
-				if (isActive && error.name !== "AbortError")
-					setRouteState("error");
+				if (isActive && error.name !== "AbortError") {
+					setRouteState(
+						error.message === "Location not found"
+							? "location-error"
+							: "error",
+					);
+				}
 			});
 
 		return () => {
@@ -559,7 +564,9 @@ function OpenRouteMap({ route }) {
 					{routeState === "missing-key" &&
 						"Add VITE_OPENROUTE_API_KEY to show the route."}
 					{routeState === "error" &&
-						"OpenRouteService could not load this route."}
+						"OpenRouteService could not load this route. Check the API key, quota, and allowed domains."}
+					{routeState === "location-error" &&
+						"Could not find one of the route locations. Try a more specific place name."}
 				</div>
 			)}
 		</div>
