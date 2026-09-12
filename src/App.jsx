@@ -22,6 +22,7 @@ import {
 	Sun,
 	Trash2,
 	Umbrella,
+	UserRound,
 	Wind,
 	X,
 } from "lucide-react";
@@ -44,7 +45,25 @@ const ACTIVITY_OPTIONS = [
 	"Sports",
 	"School pickup",
 	"Surfing",
+	"Walking",
+	"Photography",
+	"Picnic",
+	"Yoga",
+	"Travel",
 ];
+
+const ACTIVITY_CATEGORIES = {
+	All: ACTIVITY_OPTIONS,
+	Move: ["Running", "Exercise", "Cycling", "Sports", "Walking", "Yoga"],
+	Outdoors: [
+		"Gardening",
+		"Outdoor event",
+		"Surfing",
+		"Photography",
+		"Picnic",
+	],
+	Everyday: ["Commuting", "Shopping", "School pickup", "Travel"],
+};
 
 function weatherIconForCode(code) {
 	if (code === 0 || code === 1) return Sun;
@@ -61,6 +80,18 @@ function weatherLabelForCode(code) {
 	if (code >= 80 && code <= 82) return "Rain showers";
 	if (code >= 95) return "Thunderstorm";
 	return "Cloudy";
+}
+
+function getInitials(name) {
+	return (
+		name
+			.trim()
+			.split(/\s+/)
+			.map((part) => part[0])
+			.join("")
+			.slice(0, 2)
+			.toUpperCase() || "AK"
+	);
 }
 
 function formatHour(time) {
@@ -180,6 +211,126 @@ function getActivitySuitability(activity, weather) {
 				? "Manageable conditions; check rain and wind."
 				: "Weather may make this activity uncomfortable.";
 	return { score, explanation };
+}
+
+function getFarmGardenAdvisories(weather) {
+	const forecast = (weather?.hourly || []).filter(
+		(hour) =>
+			Number.isFinite(hour.temperature) ||
+			Number.isFinite(hour.precipitationProbability) ||
+			Number.isFinite(hour.wind),
+	);
+	if (!forecast.length) {
+		return [
+			{
+				type: "neutral",
+				message: "🌱 Forecast unavailable — check again shortly.",
+			},
+		];
+	}
+
+	const maxTemperature = Math.max(
+		...forecast
+			.map((hour) => Number(hour.temperature))
+			.filter(Number.isFinite),
+	);
+	const maxRainProbability = Math.max(
+		...forecast
+			.map((hour) => Number(hour.precipitationProbability))
+			.filter(Number.isFinite),
+		0,
+	);
+	const maxWind = Math.max(
+		...forecast.map((hour) => Number(hour.wind)).filter(Number.isFinite),
+		0,
+	);
+	const rainHours = forecast.filter(
+		(hour) =>
+			Number(hour.precipitationProbability) >= 45 ||
+			(Number(hour.code) >= 51 && Number(hour.code) <= 99),
+	);
+	const heavyRainExpected =
+		maxRainProbability >= 70 ||
+		forecast.some((hour) => Number(hour.code) >= 80);
+	const advisories = [];
+
+	if (heavyRainExpected) {
+		advisories.push({
+			type: "rain",
+			message:
+				"🌧️ Heavy rain expected — check drainage and avoid overwatering.",
+			detail: `${maxRainProbability}% peak rain chance`,
+		});
+	} else if (rainHours.length > 0) {
+		advisories.push({
+			type: "rain",
+			message: "🌧️ Rain expected — avoid unnecessary watering.",
+			detail: `${maxRainProbability}% peak rain chance`,
+		});
+	} else if (maxRainProbability < 25) {
+		advisories.push({
+			type: "dry",
+			message:
+				"💧 Dry conditions expected — consider watering your plants.",
+			detail: "Low rain chance in the forecast",
+		});
+	}
+
+	if (maxWind >= 30) {
+		advisories.push({
+			type: "wind",
+			message:
+				"💨 Strong winds expected — avoid spraying and secure delicate plants.",
+			detail: `${Math.round(maxWind)} km/h peak wind`,
+		});
+	}
+	if (maxTemperature >= 35) {
+		advisories.push({
+			type: "heat",
+			message:
+				"☀️ High temperatures expected — provide extra water and protect sensitive plants.",
+			detail: `${Math.round(maxTemperature)}°C peak temperature`,
+		});
+	}
+	if (!advisories.length) {
+		advisories.push({
+			type: "neutral",
+			message: "🌱 Conditions look suitable for normal garden care.",
+			detail: "No major weather risks detected",
+		});
+	}
+	return advisories;
+}
+
+function FarmGardenAdvisory({ weather }) {
+	const advisories = getFarmGardenAdvisories(weather);
+	return (
+		<section className="farm-advisory" aria-labelledby="farm-advisory-title">
+			<div className="farm-advisory-header">
+				<div className="farm-advisory-title">
+					<span className="farm-advisory-icon" aria-hidden="true">
+						🌱
+					</span>
+					<div>
+						<span className="section-kicker">FARM &amp; GARDEN</span>
+						<h2 id="farm-advisory-title">Advisory</h2>
+					</div>
+				</div>
+				<span className="farm-advisory-range">NEXT 24 HOURS</span>
+			</div>
+			<div className="farm-advisory-list">
+				{advisories.map((advisory, index) => (
+					<div
+						className={`farm-advisory-item ${advisory.type}`}
+						key={`${advisory.type}-${index}`}
+					>
+						<strong>{advisory.message}</strong>
+						{advisory.detail && <span>{advisory.detail}</span>}
+					</div>
+				))}
+			</div>
+		</section>
+	);
 }
 
 function formatDate(time) {
@@ -562,6 +713,10 @@ function TrafficUpdates({ route }) {
 
 function App() {
 	const [activeTab, setActiveTab] = useState("home");
+	const [profileName, setProfileName] = useState(
+		() => localStorage.getItem("mausam-profile-name") || "Code In Club",
+	);
+	const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
 	const [activity, setActivity] = useState(
 		() => localStorage.getItem("mausam-activity") || "Running",
 	);
@@ -582,6 +737,10 @@ function App() {
 	useEffect(
 		() => localStorage.setItem("mausam-activity", activity),
 		[activity],
+	);
+	useEffect(
+		() => localStorage.setItem("mausam-profile-name", profileName),
+		[profileName],
 	);
 	useEffect(() => {
 		localStorage.setItem(
@@ -763,6 +922,51 @@ function App() {
 			best: "7:30 – 9:00 AM",
 			accent: "leaf",
 		},
+		Walking: {
+			eyebrow: "WALKING CONDITIONS",
+			title: "A pleasant time to get outside.",
+			detail: "Comfortable air and manageable wind for an easy walk.",
+			metric: "Good",
+			metricLabel: "conditions",
+			best: "7:00 – 9:00 AM",
+			accent: "leaf",
+		},
+		Photography: {
+			eyebrow: "PHOTOGRAPHY CONDITIONS",
+			title: "Soft light and a clear outlook.",
+			detail: "A comfortable window for exploring and capturing the day outdoors.",
+			metric: "Good",
+			metricLabel: "conditions",
+			best: "5:00 – 7:00 PM",
+			accent: "coral",
+		},
+		Picnic: {
+			eyebrow: "PICNIC CONDITIONS",
+			title: "A relaxed window for a picnic.",
+			detail: "Mild weather with a low chance of interruption from rain.",
+			metric: "Good",
+			metricLabel: "conditions",
+			best: "11:00 AM – 1:00 PM",
+			accent: "leaf",
+		},
+		Yoga: {
+			eyebrow: "YOGA CONDITIONS",
+			title: "A calm start to your practice.",
+			detail: "Comfortable temperatures and light wind make it easier to focus.",
+			metric: "Good",
+			metricLabel: "conditions",
+			best: "6:00 – 8:00 AM",
+			accent: "blue",
+		},
+		Travel: {
+			eyebrow: "TRAVEL CONDITIONS",
+			title: "A smoother window to set off.",
+			detail: "No major weather interruptions are expected for your plans.",
+			metric: "Normal",
+			metricLabel: "conditions",
+			best: "9:00 – 11:00 AM",
+			accent: "blue",
+		},
 	};
 	const current = activityData[activity];
 	const navigate = (tab) => setActiveTab(tab);
@@ -796,13 +1000,21 @@ function App() {
 		);
 		const activitySuitability = getActivitySuitability(activity, weather);
 		if (activeTab === "routes")
-			return <RoutesView onBack={() => navigate("home")} />;
+			return (
+				<RoutesView
+					onBack={() => navigate("home")}
+					profileName={profileName}
+					onProfile={() => setIsProfileEditorOpen(true)}
+				/>
+			);
 		if (activeTab === "locations")
 			return (
 				<LocationsView
 					location={location}
 					onSelectLocation={selectLocation}
 					onBack={() => navigate("home")}
+					profileName={profileName}
+					onProfile={() => setIsProfileEditorOpen(true)}
 				/>
 			);
 		if (activeTab === "personalize")
@@ -812,7 +1024,10 @@ function App() {
 					setActivity={setActivity}
 					selectedActivities={selectedActivities}
 					toggleActivity={toggleActivity}
+					activityCategories={ACTIVITY_CATEGORIES}
 					onBack={() => navigate("home")}
+					profileName={profileName}
+					onProfile={() => setIsProfileEditorOpen(true)}
 				/>
 			);
 		return (
@@ -829,8 +1044,12 @@ function App() {
 						>
 							<Bell size={19} />
 						</button>
-						<button className="avatar" aria-label="Profile">
-							AK
+						<button
+							className="avatar"
+							aria-label="Profile"
+							onClick={() => setIsProfileEditorOpen(true)}
+						>
+							{getInitials(profileName)}
 						</button>
 					</div>
 				</header>
@@ -1005,6 +1224,9 @@ function App() {
 						</button>
 					)}
 				</div>
+				{activity === "Gardening" && (
+					<FarmGardenAdvisory weather={weather} />
+				)}
 				<section className="forecast-section">
 					<div className="section-heading">
 						<h2>Today at a glance</h2>
@@ -1072,7 +1294,7 @@ function App() {
 						<div className="full-forecast">
 							<div className="full-forecast-heading">
 								<span className="section-kicker">
-									NEXT 7 DAYS
+									NEXT 3 DAYS
 								</span>
 								<span className="forecast-source">
 									Open-Meteo
@@ -1106,6 +1328,16 @@ function App() {
 	return (
 		<main className="app-shell">
 			<div className="app-content">{renderContent()}</div>
+			{isProfileEditorOpen && (
+				<ProfileEditor
+					name={profileName}
+					onSave={(name) => {
+						setProfileName(name);
+						setIsProfileEditorOpen(false);
+					}}
+					onClose={() => setIsProfileEditorOpen(false)}
+				/>
+			)}
 			<nav className="bottom-nav" aria-label="Main navigation">
 				{[
 					["home", HomeIcon, "Home"],
@@ -1127,7 +1359,52 @@ function App() {
 	);
 }
 
-function PageHeader({ eyebrow, title, onBack }) {
+function ProfileEditor({ name, onSave, onClose }) {
+	const [draftName, setDraftName] = useState(name);
+
+	const save = (event) => {
+		event.preventDefault();
+		const nextName = draftName.trim();
+		if (nextName) onSave(nextName);
+	};
+
+	return (
+		<div className="profile-overlay" role="presentation" onMouseDown={onClose}>
+			<section
+				className="profile-sheet"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="profile-editor-title"
+				onMouseDown={(event) => event.stopPropagation()}
+			>
+				<button className="profile-close" type="button" onClick={onClose} aria-label="Close profile editor">
+					<X size={18} />
+				</button>
+				<div className="profile-avatar-preview">{getInitials(draftName)}</div>
+				<span className="section-kicker">YOUR PROFILE</span>
+				<h2 id="profile-editor-title">Make Mausam yours</h2>
+				<p>Set the name shown across your weather experience.</p>
+				<form className="profile-form" onSubmit={save}>
+					<label htmlFor="profile-name">Your name</label>
+					<input
+						id="profile-name"
+						value={draftName}
+						onChange={(event) => setDraftName(event.target.value)}
+						maxLength={40}
+						autoFocus
+					/>
+					<button className="primary-button profile-save" type="submit">
+						Save profile
+					</button>
+				</form>
+			</section>
+		</div>
+	);
+}
+
+function PageHeader({ eyebrow, title, onBack, onProfile }) {
+	const [isMenuOpen, setIsMenuOpen] = useState(false);
+
 	return (
 		<header className="page-header">
 			<button className="icon-button" aria-label="Back" onClick={onBack}>
@@ -1137,15 +1414,125 @@ function PageHeader({ eyebrow, title, onBack }) {
 				<span className="section-kicker">{eyebrow}</span>
 				<h1>{title}</h1>
 			</div>
-			<button className="icon-button" aria-label="Menu">
+			<button
+				className="icon-button"
+				aria-label="Menu"
+				aria-expanded={isMenuOpen}
+				onClick={() => setIsMenuOpen((open) => !open)}
+			>
 				<Menu size={20} />
 			</button>
+			{isMenuOpen && (
+				<div className="page-menu">
+					<button
+						className="page-menu-item"
+						type="button"
+						onClick={() => {
+							setIsMenuOpen(false);
+							onProfile();
+						}}
+					>
+						<UserRound size={17} /> Profile
+					</button>
+				</div>
+			)}
 		</header>
 	);
 }
 
+function evaluateRouteActivityConditions(activity, forecasts) {
+	const hours = forecasts.flatMap((forecast) =>
+		(forecast?.hourly?.time || []).map((time, index) => ({
+			time,
+			temperature: Number(forecast.hourly.temperature_2m?.[index]),
+			rain: Number(forecast.hourly.precipitation_probability?.[index]),
+			wind: Number(forecast.hourly.wind_speed_10m?.[index]),
+			uv: Number(forecast.hourly.uv_index?.[index]),
+			code: Number(forecast.hourly.weather_code?.[index]),
+		})),
+	);
+	const validHours = hours.filter((hour) => hour.time);
+	if (!validHours.length) {
+		return [
+			{
+				type: "neutral",
+				message: `Route conditions are unavailable for ${activity.toLowerCase()}.`,
+				detail: "Try again when the route forecast is available.",
+			},
+		];
+	}
+	const maxRain = Math.max(...validHours.map((hour) => hour.rain || 0));
+	const maxTemperature = Math.max(
+		...validHours
+			.map((hour) => hour.temperature)
+			.filter(Number.isFinite),
+	);
+	const maxWind = Math.max(
+		...validHours.map((hour) => hour.wind).filter(Number.isFinite),
+		0,
+	);
+	const maxUv = Math.max(
+		...validHours.map((hour) => hour.uv).filter(Number.isFinite),
+		0,
+	);
+	const rainExpected =
+		maxRain >= 50 ||
+		validHours.some((hour) => hour.code >= 51 && hour.code <= 99);
+	const prefix = activity === "Cycling" ? "Cycling" : "Running";
+
+	if (activity !== "Commuting" && rainExpected) {
+		advisories.push({
+			type: "rain",
+			message: `Rain is expected along your route. Consider postponing ${activity.toLowerCase()} or carrying rain protection.`,
+			detail: `${maxRain}% peak rain probability`,
+		});
+	}
+	if (activity !== "Commuting" && maxTemperature >= 32) {
+		advisories.push({
+			type: "heat",
+			message: `It's hot today. Carry water and consider ${activity.toLowerCase()} during cooler hours.`,
+			detail: `${Math.round(maxTemperature)}°C peak temperature`,
+		});
+	}
+	if (activity !== "Commuting" && maxUv >= 6) {
+		advisories.push({
+			type: "uv",
+			message: "UV exposure is high. Use sunscreen and avoid prolonged exposure.",
+			detail: `UV index up to ${Math.round(maxUv)}`,
+		});
+	}
+	if (activity !== "Commuting" && maxWind >= 30) {
+		advisories.push({
+			type: "wind",
+			message: `${prefix} conditions are windy. Take care on exposed sections of the route.`,
+			detail: `${Math.round(maxWind)} km/h peak wind`,
+		});
+	}
+	if (activity === "Commuting") {
+		advisories.push({
+			type: rainExpected ? "rain" : "neutral",
+			message: rainExpected
+				? "Rain is possible along your route. Carry rain protection."
+				: "Practical travel conditions look manageable along your route.",
+			detail: rainExpected
+				? `${maxRain}% peak rain probability`
+				: "No major route weather risks detected",
+		});
+	}
+	if (!advisories.length) {
+		advisories.push({
+			type: "good",
+			message: `Good conditions for ${activity.toLowerCase()}.`,
+			detail:
+				"Air quality data is unavailable for this route; weather conditions look favorable.",
+		});
+	}
+	return advisories;
+}
+
 function RouteWeatherAlert({ route }) {
 	const [alert, setAlert] = useState(null);
+	const [activityAdvice, setActivityAdvice] = useState(null);
 	const [state, setState] = useState("loading");
 
 	useEffect(() => {
@@ -1172,7 +1559,7 @@ function RouteWeatherAlert({ route }) {
 				const forecasts = await Promise.all(
 					points.map((point) =>
 						fetch(
-							`https://api.open-meteo.com/v1/forecast?latitude=${point.latitude}&longitude=${point.longitude}&hourly=precipitation_probability,weather_code&timezone=auto&forecast_days=1`,
+							`https://api.open-meteo.com/v1/forecast?latitude=${point.latitude}&longitude=${point.longitude}&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m,uv_index&timezone=auto&forecast_days=1`,
 							{ signal: controller.signal },
 						).then((response) => {
 							if (!response.ok)
@@ -1196,6 +1583,12 @@ function RouteWeatherAlert({ route }) {
 					(left, right) => right.probability - left.probability,
 				)[0];
 				setAlert(highestRisk?.probability >= 40 ? highestRisk : null);
+				setActivityAdvice(
+					evaluateRouteActivityConditions(
+						route.activity || "Commuting",
+						forecasts,
+					),
+				);
 				setState("ready");
 			})
 			.catch((error) => {
@@ -1204,27 +1597,54 @@ function RouteWeatherAlert({ route }) {
 		return () => controller.abort();
 	}, [route]);
 
-	if (state !== "ready" || !alert) return null;
+	if (state !== "ready") return null;
 	return (
-		<section className="route-alert route-specific-alert">
-			<div className="alert-icon">
-				<CloudRain size={19} />
-			</div>
-			<div>
-				<span className="section-kicker">
-					ROUTE WATCH · {route.name}
-				</span>
-				<strong>Rain is possible near {alert.place}</strong>
-				<p>
-					{formatHour(alert.time)} · {alert.probability}% chance ·
-					Open-Meteo forecast
-				</p>
-			</div>
-		</section>
+		<>
+			{alert && (
+				<section className="route-alert route-specific-alert">
+					<div className="alert-icon">
+						<CloudRain size={19} />
+					</div>
+					<div>
+						<span className="section-kicker">
+							ROUTE WATCH · {route.name}
+						</span>
+						<strong>Rain is possible near {alert.place}</strong>
+						<p>
+							{formatHour(alert.time)} · {alert.probability}% chance ·
+							Open-Meteo forecast
+						</p>
+					</div>
+				</section>
+			)}
+			{activityAdvice && (
+				<section
+					className={`route-activity-advice ${activityAdvice.type}`}
+				>
+					<div className="route-activity-advice-heading">
+						<span className="section-kicker">
+							{route.activity || "Commuting"} · ROUTE CONDITIONS
+						</span>
+						<span className="route-activity-status">LIVE</span>
+					</div>
+					<div className="route-activity-advice-list">
+						{activityAdvice.map((advisory, index) => (
+							<div
+								className={`route-activity-advice-item ${advisory.type}`}
+								key={`${advisory.type}-${index}`}
+							>
+								<strong>{advisory.message}</strong>
+								{advisory.detail && <span>{advisory.detail}</span>}
+							</div>
+						))}
+					</div>
+				</section>
+			)}
+		</>
 	);
 }
 
-function RoutesView({ onBack }) {
+function RoutesView({ onBack, onProfile }) {
 	const [isAddingRoute, setIsAddingRoute] = useState(false);
 	const [editingIndex, setEditingIndex] = useState(null);
 	const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
@@ -1233,6 +1653,7 @@ function RoutesView({ onBack }) {
 		origin: "",
 		destination: "",
 		schedule: "",
+		activity: "Commuting",
 		originCoordinates: null,
 		destinationCoordinates: null,
 	});
@@ -1249,6 +1670,7 @@ function RoutesView({ onBack }) {
 						detail: "Indiranagar → Koramangala · Weekdays · 8:20 AM",
 						status: "Clear",
 						accent: "coral-bg",
+						activity: "Commuting",
 					},
 					{
 						name: "Morning run",
@@ -1258,6 +1680,7 @@ function RoutesView({ onBack }) {
 						detail: "Home → Lalbagh · Morning",
 						status: "Good",
 						accent: "blue-bg",
+						activity: "Commuting",
 					},
 				];
 	});
@@ -1293,6 +1716,7 @@ function RoutesView({ onBack }) {
 			originCoordinates: routeForm.originCoordinates,
 			destinationCoordinates: routeForm.destinationCoordinates,
 			schedule: routeForm.schedule.trim(),
+			activity: routeForm.activity,
 			detail: `${routeForm.origin.trim()} → ${routeForm.destination.trim()}${routeForm.schedule.trim() ? ` · ${routeForm.schedule.trim()}` : ""}`,
 			status:
 				editingIndex === null
@@ -1319,6 +1743,7 @@ function RoutesView({ onBack }) {
 			origin: "",
 			destination: "",
 			schedule: "",
+			activity: "Commuting",
 			originCoordinates: null,
 			destinationCoordinates: null,
 		});
@@ -1344,6 +1769,7 @@ function RoutesView({ onBack }) {
 				(route.detail.includes(" → ")
 					? scheduleParts.join(" · ")
 					: route.detail),
+			activity: route.activity || "Commuting",
 		});
 		setEditingIndex(index);
 		setIsAddingRoute(true);
@@ -1365,6 +1791,7 @@ function RoutesView({ onBack }) {
 				eyebrow="WEATHER-AWARE"
 				title="Your routes"
 				onBack={onBack}
+				onProfile={onProfile}
 			/>
 			<OpenRouteMap route={selectedRoute} />
 			{selectedRoute && <TrafficUpdates route={selectedRoute} />}
@@ -1400,15 +1827,18 @@ function RoutesView({ onBack }) {
 								<X size={17} />
 							</button>
 						</div>
-						<input
-							value={routeForm.name}
-							onChange={(event) =>
-								updateRouteField("name", event.target.value)
-							}
-							placeholder="Route name"
-							aria-label="Route name"
-							required
-						/>
+						<label className="route-input-group">
+							<span className="route-field-label">Route name</span>
+							<input
+								value={routeForm.name}
+								onChange={(event) =>
+									updateRouteField("name", event.target.value)
+								}
+								placeholder="e.g. Home to office"
+								aria-label="Route name"
+								required
+							/>
+						</label>
 						<div className="route-form-row">
 							<RouteLocationField
 								label="Route origin"
@@ -1433,14 +1863,38 @@ function RoutesView({ onBack }) {
 								placeholder="To"
 							/>
 						</div>
-						<input
-							value={routeForm.schedule}
-							onChange={(event) =>
-								updateRouteField("schedule", event.target.value)
-							}
-							placeholder="Schedule (optional)"
-							aria-label="Route schedule"
-						/>
+						<label className="route-input-group">
+							<span className="route-field-label">
+								Activity
+							</span>
+							<select
+								value={routeForm.activity}
+								onChange={(event) =>
+									updateRouteField(
+										"activity",
+										event.target.value,
+									)
+								}
+								aria-label="Route activity"
+							>
+								<option value="Commuting">Commuting</option>
+								<option value="Running">Running</option>
+								<option value="Cycling">Cycling</option>
+							</select>
+						</label>
+						<label className="route-input-group">
+							<span className="route-field-label">
+								Schedule <em>Optional</em>
+							</span>
+							<input
+								value={routeForm.schedule}
+								onChange={(event) =>
+									updateRouteField("schedule", event.target.value)
+								}
+								placeholder="e.g. Weekdays · 8:20 AM"
+								aria-label="Route schedule"
+							/>
+						</label>
 						<button className="save-route-button" type="submit">
 							{editingIndex === null
 								? "Save route"
@@ -1461,6 +1915,9 @@ function RoutesView({ onBack }) {
 							<strong>{savedRoute.name}</strong>
 							<span>{savedRoute.detail}</span>
 						</div>
+						<span className="route-activity-pill">
+							{savedRoute.activity || "Commuting"}
+						</span>
 						<span className="status-pill good">
 							{savedRoute.status}
 						</span>
@@ -1526,6 +1983,7 @@ function RouteLocationField({ label, value, onChange, onSelect, placeholder }) {
 	}, [value, hasSelection]);
 	return (
 		<div className="route-location-field">
+			<span className="route-field-label">{label}</span>
 			<input
 				value={value}
 				onChange={(event) => {
@@ -1572,7 +2030,7 @@ function RouteLocationField({ label, value, onChange, onSelect, placeholder }) {
 	);
 }
 
-function LocationsView({ location, onSelectLocation, onBack }) {
+function LocationsView({ location, onSelectLocation, onBack, onProfile }) {
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState([]);
 	const [searchState, setSearchState] = useState("idle");
@@ -1676,6 +2134,7 @@ function LocationsView({ location, onSelectLocation, onBack }) {
 				eyebrow="PLACES"
 				title="Your locations"
 				onBack={onBack}
+				onProfile={onProfile}
 			/>
 			<section className="page-section locations-page">
 				<div className="search-box">
@@ -1878,26 +2337,49 @@ function PersonalizeView({
 	activity,
 	selectedActivities,
 	toggleActivity,
+	activityCategories,
 	onBack,
+	profileName,
+	onProfile,
 }) {
+	const [activeCategory, setActiveCategory] = useState("All");
+	const visibleActivities = activityCategories[activeCategory];
 	return (
 		<>
 			<PageHeader
 				eyebrow="YOUR PREFERENCES"
 				title="Make it yours"
 				onBack={onBack}
+				onProfile={onProfile}
 			/>
 			<section className="page-section personalize-page">
 				<div className="profile-intro">
-					<div className="large-avatar">AK</div>
+					<div className="large-avatar">{getInitials(profileName)}</div>
 					<div>
-						<h2>Good morning, Ankit</h2>
-						<p>Tell us what matters most to you.</p>
+						<h2>Good morning, {profileName}</h2>
++						<p>Tell us what matters most to you.</p>
 					</div>
 				</div>
 				<span className="section-kicker">MY ACTIVITIES</span>
+				<div
+					className="activity-categories"
+					aria-label="Activity categories"
+				>
+					{Object.keys(activityCategories).map((category) => (
+						<button
+							key={category}
+							type="button"
+							className={
+								activeCategory === category ? "active" : ""
+							}
+							onClick={() => setActiveCategory(category)}
+						>
+							{category}
+						</button>
+					))}
+				</div>
 				<div className="activity-grid">
-					{ACTIVITY_OPTIONS.map((item) => (
+					{visibleActivities.map((item) => (
 						<button
 							className={
 								selectedActivities.includes(item)
