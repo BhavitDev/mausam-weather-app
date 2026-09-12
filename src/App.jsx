@@ -213,6 +213,55 @@ function getActivitySuitability(activity, weather) {
 	return { score, explanation };
 }
 
+function buildDayPlan(activity, hourlyForecast) {
+	if (!hourlyForecast.length) return [];
+	const bestHour = getBestActivityWindow(activity, hourlyForecast);
+	const plan = bestHour
+		? [
+				{
+					type: "best",
+					time: formatHour(bestHour.time),
+					title: `Best for ${activity.toLowerCase()}`,
+					detail: `${Math.round(bestHour.temperature)}° · ${weatherLabelForCode(bestHour.code)} · ${bestHour.precipitationProbability}% rain`,
+				},
+			]
+		: [];
+	const rainHour = hourlyForecast
+		.filter((hour) => hour.precipitationProbability >= 50)
+		.sort(
+			(left, right) =>
+				right.precipitationProbability - left.precipitationProbability,
+		)[0];
+	if (rainHour) {
+		plan.push({
+			type: "watch",
+			time: formatHour(rainHour.time),
+			title: "Keep an umbrella nearby",
+			detail: `${rainHour.precipitationProbability}% chance of rain`,
+		});
+	}
+	const windHour = hourlyForecast
+		.filter((hour) => Number.isFinite(hour.wind))
+		.sort((left, right) => right.wind - left.wind)[0];
+	if (windHour && windHour.wind >= 25) {
+		plan.push({
+			type: "watch",
+			time: formatHour(windHour.time),
+			title: "Wind may affect outdoor plans",
+			detail: `${Math.round(windHour.wind)} km/h wind · plan something sheltered`,
+		});
+	}
+	if (plan.length === 1) {
+		plan.push({
+			type: "good",
+			time: "Today",
+			title: "Conditions look manageable",
+			detail: "No major weather interruptions detected in the forecast.",
+		});
+	}
+	return plan.slice(0, 3);
+}
+
 function getFarmGardenAdvisories(weather) {
 	const forecast = (weather?.hourly || []).filter(
 		(hour) =>
@@ -742,6 +791,8 @@ function App() {
 		WEATHER_LOCATIONS.Bengaluru,
 	);
 	const [isActivityPickerOpen, setIsActivityPickerOpen] = useState(false);
+	const [isDayPlanOpen, setIsDayPlanOpen] = useState(false);
+	const [dayPlanActivities, setDayPlanActivities] = useState([activity]);
 	const [isHourlyExpanded, setIsHourlyExpanded] = useState(false);
 	const [isForecastExpanded, setIsForecastExpanded] = useState(false);
 	const [weather, setWeather] = useState(null);
@@ -1015,6 +1066,12 @@ function App() {
 			hourlyForecast,
 		);
 		const activitySuitability = getActivitySuitability(activity, weather);
+		const dayPlan = dayPlanActivities.flatMap((planActivity) =>
+			buildDayPlan(planActivity, hourlyForecast).map((item) => ({
+				...item,
+				activity: planActivity,
+			})),
+		);
 		if (activeTab === "routes")
 			return (
 				<RoutesView
@@ -1154,12 +1211,30 @@ function App() {
 								: `Your ${activity.toLowerCase()} forecast.`}
 						</h1>
 					</div>
-					<button
-						className="text-button"
-						onClick={() => setIsActivityPickerOpen((open) => !open)}
-					>
-						Edit <ChevronRight size={15} />
-					</button>
+					<div className="insight-actions">
+						<button
+							className="build-day-button"
+							type="button"
+							onClick={() => {
+								setDayPlanActivities((activities) =>
+									activities.includes(activity)
+										? activities
+										: [activity, ...activities],
+								);
+								setIsDayPlanOpen((open) => !open);
+							}}
+						>
+							{isDayPlanOpen ? "Hide plan" : "Build my day"}
+						</button>
+						<button
+							className="text-button"
+							onClick={() =>
+								setIsActivityPickerOpen((open) => !open)
+							}
+						>
+							Edit <ChevronRight size={15} />
+						</button>
+					</div>
 				</section>
 				{isActivityPickerOpen && (
 					<div
@@ -1240,6 +1315,75 @@ function App() {
 						</button>
 					)}
 				</div>
+				{isDayPlanOpen && (
+					<section className="day-plan-card" aria-live="polite">
+						<div className="day-plan-heading">
+							<div>
+								<span className="section-kicker">WEATHER-AWARE PLAN</span>
+								<h2>Your day, at a glance</h2>
+							</div>
+							<span className="day-plan-badge">
+								{dayPlanActivities.length}{" "}
+								{dayPlanActivities.length === 1
+									? "activity"
+									: "activities"}
+							</span>
+						</div>
+						<div className="day-plan-activities">
+							<span className="section-kicker">PLAN FOR</span>
+							<div className="day-plan-activity-options">
+								{selectedActivities
+									.filter((option) => activityData[option])
+									.map((option) => {
+										const selected =
+											dayPlanActivities.includes(option);
+										return (
+											<button
+												type="button"
+												className={selected ? "selected" : ""}
+												key={option}
+												onClick={() =>
+													setDayPlanActivities((activities) => {
+														if (selected) {
+															return activities.length > 1
+																? activities.filter(
+																		(item) => item !== option,
+																	)
+																: activities;
+														}
+														return [...activities, option];
+													})
+												}
+											>
+												{option}
+											</button>
+										);
+									})}
+							</div>
+						</div>
+						{dayPlan.length ? (
+							<div className="day-plan-list">
+								{dayPlan.map((item, index) => (
+									<div
+										className={`day-plan-item ${item.type}`}
+										key={`${item.activity}-${item.type}-${item.time}-${index}`}
+									>
+										<span className="day-plan-time">{item.time}</span>
+										<div>
+											<small>{item.activity}</small>
+											<strong>{item.title}</strong>
+											<span>{item.detail}</span>
+										</div>
+									</div>
+								))}
+							</div>
+						) : (
+							<p className="day-plan-empty">
+								Waiting for the latest forecast to build your plan.
+							</p>
+						)}
+					</section>
+				)}
 				{activity === "Gardening" && (
 					<FarmGardenAdvisory weather={weather} />
 				)}
@@ -2367,7 +2511,25 @@ function PersonalizeView({
 	onProfile,
 }) {
 	const [activeCategory, setActiveCategory] = useState("All");
+	const [dailyBriefingEnabled, setDailyBriefingEnabled] = useState(
+		() => localStorage.getItem("mausam-daily-briefing") !== "off",
+	);
+	const [routeAlertsEnabled, setRouteAlertsEnabled] = useState(
+		() => localStorage.getItem("mausam-route-alerts") !== "off",
+	);
 	const visibleActivities = activityCategories[activeCategory];
+	useEffect(() => {
+		localStorage.setItem(
+			"mausam-daily-briefing",
+			dailyBriefingEnabled ? "on" : "off",
+		);
+	}, [dailyBriefingEnabled]);
+	useEffect(() => {
+		localStorage.setItem(
+			"mausam-route-alerts",
+			routeAlertsEnabled ? "on" : "off",
+		);
+	}, [routeAlertsEnabled]);
 	return (
 		<>
 			<PageHeader
@@ -2441,18 +2603,36 @@ function PersonalizeView({
 						<strong>Daily weather briefing</strong>
 						<span>A short view of the day ahead</span>
 					</div>
-					<div className="toggle on">
+					<button
+						className={`toggle ${dailyBriefingEnabled ? "on" : ""}`}
+						type="button"
+						role="switch"
+						aria-checked={dailyBriefingEnabled}
+						aria-label="Toggle daily weather briefing"
+						onClick={() =>
+							setDailyBriefingEnabled((enabled) => !enabled)
+						}
+					>
 						<span />
-					</div>
+					</button>
 				</div>
 				<div className="setting-row">
 					<div>
 						<strong>Route alerts</strong>
 						<span>Only when conditions change</span>
 					</div>
-					<div className="toggle on">
+					<button
+						className={`toggle ${routeAlertsEnabled ? "on" : ""}`}
+						type="button"
+						role="switch"
+						aria-checked={routeAlertsEnabled}
+						aria-label="Toggle route alerts"
+						onClick={() =>
+							setRouteAlertsEnabled((enabled) => !enabled)
+						}
+					>
 						<span />
-					</div>
+					</button>
 				</div>
 				<span className="section-kicker">PRIVACY</span>
 				<div className="privacy-note">
