@@ -450,7 +450,9 @@ function OpenRouteMap({ route }) {
 			attribution: "&copy; OpenStreetMap contributors",
 		}).addTo(map);
 		if (!apiKey) {
-			setRouteState("missing-key");
+			queueMicrotask(() => {
+				if (isActive) setRouteState("missing-key");
+			});
 			return () => {
 				isActive = false;
 				controller.abort();
@@ -540,6 +542,8 @@ function OpenRouteMap({ route }) {
 		apiKey,
 		routeOrigin,
 		routeDestination,
+		routeOriginCoordinates,
+		routeDestinationCoordinates,
 		routeOriginCoordinates?.latitude,
 		routeOriginCoordinates?.longitude,
 		routeDestinationCoordinates?.latitude,
@@ -577,7 +581,7 @@ function TrafficUpdates({ route }) {
 				setState("missing-key");
 				return;
 			}
-			setState("loading");
+			queueMicrotask(() => setState("loading"));
 			try {
 				const resolvePoint = async (query, coordinates) => {
 					if (coordinates) return coordinates;
@@ -649,6 +653,8 @@ function TrafficUpdates({ route }) {
 		retryToken,
 		route?.origin,
 		route?.destination,
+		route?.originCoordinates,
+		route?.destinationCoordinates,
 		route?.originCoordinates?.latitude,
 		route?.originCoordinates?.longitude,
 		route?.destinationCoordinates?.latitude,
@@ -747,14 +753,17 @@ function App() {
 			"mausam-selected-activities",
 			JSON.stringify(selectedActivities),
 		);
-		if (!selectedActivities.includes(activity))
-			setActivity(selectedActivities[0]);
+		if (!selectedActivities.includes(activity)) {
+			queueMicrotask(() => setActivity(selectedActivities[0]));
+		}
 	}, [selectedActivities, activity]);
 	useEffect(() => {
 		const coordinates = locationCoordinates;
 		const controller = new AbortController();
-		setWeatherState("loading");
-		setWeatherSource("Open-Meteo");
+		queueMicrotask(() => {
+			setWeatherState("loading");
+			setWeatherSource("Open-Meteo");
+		});
 		fetch(
 			`https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=auto&forecast_days=7`,
 			{ signal: controller.signal },
@@ -1441,6 +1450,7 @@ function PageHeader({ eyebrow, title, onBack, onProfile }) {
 }
 
 function evaluateRouteActivityConditions(activity, forecasts) {
+	const advisories = [];
 	const hours = forecasts.flatMap((forecast) =>
 		(forecast?.hourly?.time || []).map((time, index) => ({
 			time,
@@ -1537,7 +1547,7 @@ function RouteWeatherAlert({ route }) {
 
 	useEffect(() => {
 		if (!route) {
-			setState("empty");
+			queueMicrotask(() => setState("empty"));
 			return undefined;
 		}
 		const controller = new AbortController();
@@ -1547,7 +1557,7 @@ function RouteWeatherAlert({ route }) {
 				await searchOpenRouteLocations(query, controller.signal, 1)
 			)[0];
 		};
-		setState("loading");
+		queueMicrotask(() => setState("loading"));
 		Promise.all([
 			resolvePoint(route.origin, route.originCoordinates),
 			resolvePoint(route.destination, route.destinationCoordinates),
@@ -1595,7 +1605,11 @@ function RouteWeatherAlert({ route }) {
 				if (error.name !== "AbortError") setState("error");
 			});
 		return () => controller.abort();
-	}, [route]);
+	}, [
+		route,
+		route?.originCoordinates,
+		route?.destinationCoordinates,
+	]);
 
 	if (state !== "ready") return null;
 	return (
@@ -1960,8 +1974,10 @@ function RouteLocationField({ label, value, onChange, onSelect, placeholder }) {
 		const query = value.trim();
 		if (hasSelection) return undefined;
 		if (query.length < 2) {
-			setResults([]);
-			setSearchState("idle");
+			queueMicrotask(() => {
+				setResults([]);
+				setSearchState("idle");
+			});
 			return undefined;
 		}
 		const controller = new AbortController();
@@ -2107,8 +2123,10 @@ function LocationsView({ location, onSelectLocation, onBack, onProfile }) {
 	useEffect(() => {
 		const trimmedQuery = query.trim();
 		if (trimmedQuery.length < 2) {
-			setResults([]);
-			setSearchState("idle");
+			queueMicrotask(() => {
+				setResults([]);
+				setSearchState("idle");
+			});
 			return undefined;
 		}
 		const controller = new AbortController();
@@ -2334,7 +2352,6 @@ function LocationsView({ location, onSelectLocation, onBack, onProfile }) {
 	);
 }
 function PersonalizeView({
-	activity,
 	selectedActivities,
 	toggleActivity,
 	activityCategories,
@@ -2357,7 +2374,7 @@ function PersonalizeView({
 					<div className="large-avatar">{getInitials(profileName)}</div>
 					<div>
 						<h2>Good morning, {profileName}</h2>
-+						<p>Tell us what matters most to you.</p>
+						<p>Tell us what matters most to you.</p>
 					</div>
 				</div>
 				<span className="section-kicker">MY ACTIVITIES</span>

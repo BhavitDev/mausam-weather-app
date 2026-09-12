@@ -1489,6 +1489,61 @@
 	gap: 13px;
 	margin-bottom: 38px;
 }
+.profile-name-section {
+    flex: 1;
+}
+.profile-name-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.profile-name-row h2 {
+    margin: 0 0 4px;
+}
+.edit-profile-button {
+    border: 0;
+    background: transparent;
+    color: #71807a;
+    padding: 4px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}
+.profile-edit {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.profile-edit input {
+    width: 150px;
+    border: 1px solid #d9ddd8;
+    border-radius: 6px;
+    padding: 7px 9px;
+    background: #fff;
+    color: #294238;
+    font-size: 14px;
+    outline: none;
+}
+.profile-edit input:focus {
+    border-color: #24463a;
+}
+.profile-edit button {
+    border: 0;
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.profile-edit button:first-of-type {
+    background: #24463a;
+    color: #fff;
+}
+.profile-edit button:last-of-type {
+    background: #e9ece8;
+    color: #455b50;
+}
 .large-avatar {
 	width: 50px;
 	height: 50px;
