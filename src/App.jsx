@@ -47,10 +47,10 @@ const ACTIVITY_OPTIONS = [
 	"School pickup",
 	"Surfing",
 	"Walking",
-	"Photography",
 	"Picnic",
 	"Yoga",
 	"Travel",
+	"Health",
 ];
 
 const ACTIVITY_CATEGORIES = {
@@ -60,10 +60,10 @@ const ACTIVITY_CATEGORIES = {
 		"Gardening",
 		"Outdoor event",
 		"Surfing",
-		"Photography",
 		"Picnic",
 	],
 	Everyday: ["Commuting", "Shopping", "School pickup", "Travel"],
+	Health: ["Health"],
 };
 
 function weatherIconForCode(code) {
@@ -112,6 +112,43 @@ function formatWindow(time) {
 	return `${formatPart(start)} – ${formatPart(end)}`;
 }
 
+function formatClockTime(hour, minute) {
+	const normalizedHour = ((hour % 24) + 24) % 24;
+	return `${normalizedHour % 12 || 12}:${String(minute).padStart(2, "0")} ${
+		normalizedHour >= 12 ? "PM" : "AM"
+	}`;
+}
+
+function getBestRouteDeparture(activity, forecasts) {
+	const firstForecast = forecasts[0]?.hourly;
+	if (!firstForecast?.time?.length) return null;
+	const candidates = firstForecast.time.map((time, index) => {
+		const conditions = forecasts.map((forecast) => ({
+			rain: Number(forecast.hourly.precipitation_probability?.[index] ?? 0),
+			wind: Number(forecast.hourly.wind_speed_10m?.[index] ?? 0),
+			temperature: Number(forecast.hourly.temperature_2m?.[index] ?? 20),
+		}));
+		const average = (key) =>
+			conditions.reduce((total, item) => total + item[key], 0) /
+			conditions.length;
+		const rain = average("rain");
+		const wind = average("wind");
+		const temperature = average("temperature");
+		const hour = Number(time.slice(11, 13));
+		const daytimePenalty = hour < 6 || hour > 20 ? 20 : 0;
+		const activityPenalty =
+			activity === "Running" || activity === "Cycling"
+				? Math.max(0, temperature - 28) * 3 + Math.max(0, wind - 25)
+				: 0;
+		return {
+			hour,
+			minute: Number(time.slice(14, 16)),
+			score: rain * 2 + wind + daytimePenalty + activityPenalty,
+		};
+	});
+	return candidates.sort((left, right) => left.score - right.score)[0];
+}
+
 function getBestActivityWindow(activity, hourlyForecast) {
 	if (!hourlyForecast.length) return null;
 	const idealTemperature = {
@@ -125,6 +162,7 @@ function getBestActivityWindow(activity, hourlyForecast) {
 		Sports: [16, 29],
 		"School pickup": [18, 30],
 		Surfing: [20, 28],
+		Health: [16, 30],
 	}[activity] || [16, 29];
 	const activeHours = {
 		Running: [5, 22],
@@ -137,6 +175,7 @@ function getBestActivityWindow(activity, hourlyForecast) {
 		Sports: [6, 22],
 		"School pickup": [7, 17],
 		Surfing: [6, 18],
+		Health: [6, 21],
 	}[activity] || [6, 22];
 	const scored = hourlyForecast.map((hour) => {
 		const midpoint = (idealTemperature[0] + idealTemperature[1]) / 2;
@@ -200,14 +239,34 @@ function getActivitySuitability(activity, weather) {
 				);
 	const rainScore = Math.max(0, 30 - hour.precipitationProbability * 0.3);
 	const windScore = Math.max(0, 20 - Math.max(0, hour.wind - 12));
+	const uvScore =
+		activity === "Health" && Number.isFinite(hour.uv)
+			? Math.max(0, 10 - Math.max(0, hour.uv - 3) * 2)
+			: 0;
+	const humidityScore =
+		activity === "Health" && Number.isFinite(hour.humidity)
+			? hour.humidity >= 35 && hour.humidity <= 70
+				? 10
+				: 5
+			: 0;
 	const conditionScore =
 		hour.code >= 95 ? 0 : hour.code >= 51 ? 4 : hour.code >= 3 ? 7 : 10;
 	const score = Math.round(
-		Math.min(100, temperatureScore + rainScore + windScore + conditionScore),
+		Math.min(
+			100,
+			temperatureScore +
+				rainScore +
+				windScore +
+				conditionScore +
+				uvScore +
+				humidityScore,
+		),
 	);
 	const explanation =
 		score >= 75
-			? "Good temperature, low rain chance."
+			? activity === "Health"
+				? "Comfortable temperature, humidity, and outdoor exposure."
+				: "Good temperature, low rain chance."
 			: score >= 50
 				? "Manageable conditions; check rain and wind."
 				: "Weather may make this activity uncomfortable.";
@@ -294,6 +353,16 @@ function getFarmGardenAdvisories(weather) {
 		...forecast.map((hour) => Number(hour.wind)).filter(Number.isFinite),
 		0,
 	);
+	const minimumTemperature = Math.min(
+		...forecast
+			.map((hour) => Number(hour.temperature))
+			.filter(Number.isFinite),
+	);
+	const humidityValues = forecast
+		.map((hour) => Number(hour.humidity))
+		.filter(Number.isFinite);
+	const minimumHumidity = Math.min(...humidityValues);
+	const maximumHumidity = Math.max(...humidityValues);
 	const rainHours = forecast.filter(
 		(hour) =>
 			Number(hour.precipitationProbability) >= 45 ||
@@ -342,6 +411,38 @@ function getFarmGardenAdvisories(weather) {
 			detail: `${Math.round(maxTemperature)}°C peak temperature`,
 		});
 	}
+	if (minimumTemperature <= 0) {
+		advisories.push({
+			type: "frost",
+			message:
+				"❄️ Frost risk expected — protect sensitive plants and cover exposed seedlings.",
+			detail: `${Math.round(minimumTemperature)}°C minimum forecast`,
+		});
+	} else if (minimumTemperature <= 3) {
+		advisories.push({
+			type: "frost",
+			message:
+				"❄️ Cold conditions expected — check delicate plants overnight.",
+			detail: `${Math.round(minimumTemperature)}°C minimum forecast`,
+		});
+	}
+	if (humidityValues.length) {
+		if (maximumHumidity >= 85) {
+			advisories.push({
+				type: "humidity",
+				message:
+					"💧 Very humid conditions expected — allow foliage to dry and avoid overwatering.",
+				detail: `${Math.round(maximumHumidity)}% peak humidity`,
+			});
+		} else if (minimumHumidity < 30) {
+			advisories.push({
+				type: "humidity",
+				message:
+					"💧 Low humidity expected — check plants for dryness and water when needed.",
+				detail: `${Math.round(minimumHumidity)}% lowest humidity`,
+			});
+		}
+	}
 	if (!advisories.length) {
 		advisories.push({
 			type: "neutral",
@@ -378,6 +479,285 @@ function FarmGardenAdvisory({ weather }) {
 						{advisory.detail && <span>{advisory.detail}</span>}
 					</div>
 				))}
+			</div>
+		</section>
+	);
+}
+
+function HealthAdvisory({ weather }) {
+	const current = weather?.current;
+	const humidity = Number(current?.relative_humidity_2m);
+	const uv = Number(current?.uv_index);
+	const aqi = Number(current?.air_quality);
+	const advisories = [];
+	if (Number.isFinite(uv)) {
+		advisories.push(
+			uv >= 6
+				? "UV is high — use sun protection and limit prolonged exposure."
+				: "UV is in a more comfortable range for outdoor plans.",
+		);
+	} else {
+		advisories.push("UV index: Data unavailable");
+	}
+	if (Number.isFinite(humidity)) {
+		advisories.push(
+			humidity >= 75
+				? `Humidity is high at ${Math.round(humidity)}% — take breaks and stay hydrated.`
+				: humidity < 30
+					? `Humidity is low at ${Math.round(humidity)}% — keep water nearby.`
+					: `Humidity is ${Math.round(humidity)}% — a balanced level for most outdoor plans.`,
+		);
+	} else {
+		advisories.push("Humidity: Data unavailable");
+	}
+	advisories.push(
+		Number.isFinite(aqi)
+			? `Air quality index: ${Math.round(aqi)}`
+			: "Air quality: Data unavailable",
+	);
+	return (
+		<section className="health-advisory" aria-labelledby="health-advisory-title">
+			<div className="health-advisory-header">
+				<div>
+					<span className="section-kicker">HEALTH &amp; WELLBEING</span>
+					<h2 id="health-advisory-title">Outdoor health check</h2>
+				</div>
+				<span aria-hidden="true">♥</span>
+			</div>
+			<div className="health-advisory-list">
+				{advisories.map((advisory) => (
+					<div key={advisory}>{advisory}</div>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function OutdoorFitnessAdvisory({ activity, weather, bestWindow }) {
+	const today = weather?.daily?.[0];
+	const forecast = weather?.hourly || [];
+	const peakWind = Math.max(
+		...forecast.map((hour) => Number(hour.wind)).filter(Number.isFinite),
+		0,
+	);
+	const peakTemperature = Math.max(
+		...forecast
+			.map((hour) => Number(hour.temperature))
+			.filter(Number.isFinite),
+		0,
+	);
+	const formatSunTime = (time) => (time ? formatHour(time) : "Unavailable");
+	return (
+		<section className="fitness-advisory" aria-labelledby="fitness-advisory-title">
+			<div className="fitness-advisory-header">
+				<div>
+					<span className="section-kicker">OUTDOOR FITNESS</span>
+					<h2 id="fitness-advisory-title">{activity} conditions</h2>
+				</div>
+				<span className="fitness-advisory-icon" aria-hidden="true">
+					☀
+				</span>
+			</div>
+			<div className="fitness-sun-row">
+				<div>
+					<span>Sunrise</span>
+					<strong>{formatSunTime(today?.sunrise)}</strong>
+				</div>
+				<div>
+					<span>Sunset</span>
+					<strong>{formatSunTime(today?.sunset)}</strong>
+				</div>
+				<div>
+					<span>Best window</span>
+					<strong>
+						{bestWindow ? formatWindow(bestWindow.time) : "Unavailable"}
+					</strong>
+				</div>
+			</div>
+			<div className="fitness-metrics">
+				<div>
+					<Wind size={16} />
+					<span>Wind</span>
+					<strong>
+						{Number.isFinite(peakWind) ? `${Math.round(peakWind)} km/h peak` : "Unavailable"}
+					</strong>
+				</div>
+				<div className={peakTemperature >= 32 ? "heat-alert" : ""}>
+					<Sun size={16} />
+					<span>Heat check</span>
+					<strong>
+						{Number.isFinite(peakTemperature) && peakTemperature >= 32
+							? `Heat alert · ${Math.round(peakTemperature)}°C`
+							: Number.isFinite(peakTemperature)
+								? `No major heat alert · ${Math.round(peakTemperature)}°C peak`
+								: "Unavailable"}
+					</strong>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+function SurfingAdvisory({ marineWeather, marineState, location }) {
+	const hourly = marineWeather?.hourly;
+	const waterTemperatures = hourly?.sea_surface_temperature || [];
+	const waterTemperature = Number(waterTemperatures[0]);
+	const hasMarineData =
+		Number.isFinite(waterTemperature) && waterTemperature > 0;
+	return (
+		<section className="surfing-advisory" aria-labelledby="surfing-advisory-title">
+			<div className="surfing-advisory-header">
+				<div>
+					<span className="section-kicker">SURF CONDITIONS</span>
+					<h2 id="surfing-advisory-title">Plan your session</h2>
+				</div>
+				<span aria-hidden="true">≈</span>
+			</div>
+			{marineState === "loading" && (
+				<p className="surfing-advisory-status">Loading marine conditions…</p>
+			)}
+			{marineState === "error" && (
+				<p className="surfing-advisory-status">
+					Marine data is temporarily unavailable.
+				</p>
+			)}
+			{marineState === "ready" && !hasMarineData ? (
+				<div className="surfing-no-water">
+					<strong>No water bodies found near {location}.</strong>
+				</div>
+			) : (
+				<div className="surfing-metrics">
+					<div>
+						<span>Water temperature</span>
+						<strong>{waterTemperature.toFixed(1)}°C</strong>
+					</div>
+				</div>
+			)}
+		</section>
+	);
+}
+
+function CommutingAdvisory({ weather }) {
+	const forecast = weather?.hourly || [];
+	const fogExpected = forecast.some((hour) => [45, 48].includes(Number(hour.code)));
+	const stormExpected = forecast.some((hour) => Number(hour.code) >= 95);
+	const rainExpected = forecast.some(
+		(hour) =>
+			Number(hour.precipitationProbability) >= 50 ||
+			(Number(hour.code) >= 51 && Number(hour.code) <= 82),
+	);
+	const visibilityMessage = fogExpected
+		? "Low visibility possible — allow extra travel time and use caution."
+		: stormExpected
+			? "Storm conditions may reduce visibility — consider delaying non-essential travel."
+			: rainExpected
+				? "Rain may reduce visibility — use lights and leave extra space."
+				: "Visibility conditions look favorable for commuting.";
+	const alerts = [];
+	if (fogExpected) alerts.push("Fog alert");
+	if (stormExpected) alerts.push("Storm alert");
+	if (rainExpected && !stormExpected) alerts.push("Rain watch");
+	return (
+		<section className="commuting-advisory" aria-labelledby="commuting-advisory-title">
+			<div className="commuting-advisory-header">
+				<div>
+					<span className="section-kicker">COMMUTE CHECK</span>
+					<h2 id="commuting-advisory-title">Travel conditions</h2>
+				</div>
+				<span aria-hidden="true">⇢</span>
+			</div>
+			<div className={`commuting-visibility ${fogExpected || stormExpected ? "alert" : ""}`}>
+				<strong>Visibility</strong>
+				<span>{visibilityMessage}</span>
+			</div>
+			<div className="commuting-alerts">
+				{alerts.length ? (
+					alerts.map((alert) => <span key={alert}>{alert}</span>)
+				) : (
+					<span className="clear">No fog or storm alerts</span>
+				)}
+			</div>
+		</section>
+	);
+}
+
+function EventAdvisory({ activity, weather }) {
+	const hourly = weather?.hourly || [];
+	const daily = weather?.daily || [];
+	const peakRain = Math.max(
+		...hourly
+			.map((hour) => Number(hour.precipitationProbability))
+			.filter(Number.isFinite),
+		0,
+	);
+	const peakWind = Math.max(
+		...hourly.map((hour) => Number(hour.wind)).filter(Number.isFinite),
+		0,
+	);
+	const temperatures = hourly
+		.map((hour) => Number(hour.temperature))
+		.filter(Number.isFinite);
+	const averageTemperature = temperatures.length
+		? temperatures.reduce((total, value) => total + value, 0) /
+			temperatures.length
+		: null;
+	const comfortScore = Math.max(
+		0,
+		Math.min(
+			100,
+			100 -
+				peakRain * 0.45 -
+				Math.max(0, peakWind - 15) * 1.2 -
+				(averageTemperature !== null &&
+				(averageTemperature < 15 || averageTemperature > 32)
+					? 16
+					: 0),
+		),
+	);
+	const rainDays = daily.filter((day) => Number(day.rain) >= 40);
+	return (
+		<section className="event-advisory" aria-labelledby="event-advisory-title">
+			<div className="event-advisory-header">
+				<div>
+					<span className="section-kicker">OUTDOOR GATHERING</span>
+					<h2 id="event-advisory-title">{activity} comfort index</h2>
+				</div>
+				<strong className="event-comfort-score">
+					{hourly.length ? `${Math.round(comfortScore)}%` : "--"}
+				</strong>
+			</div>
+			<div className="event-advisory-summary">
+				<span>
+					{peakRain >= 60
+						? "Rain risk is high — keep a covered backup space ready."
+						: peakRain >= 30
+							? "Rain is possible — consider a flexible plan."
+							: "Low rain risk — outdoor plans look comfortable."}
+				</span>
+				<strong>
+					{peakRain ? `${Math.round(peakRain)}% peak rain chance` : "Rain data unavailable"}
+				</strong>
+			</div>
+			<div className="event-advisory-details">
+				<span>
+					Wind: {peakWind ? `${Math.round(peakWind)} km/h peak` : "Unavailable"}
+				</span>
+				<span>
+					{rainDays.length
+						? `${rainDays.length} day${rainDays.length === 1 ? "" : "s"} with rain risk`
+						: "No major rain days in the extended forecast"}
+				</span>
+			</div>
+			<div className="event-extended-forecast">
+				<span className="section-kicker">EXTENDED OUTLOOK</span>
+				<div>
+					{daily.slice(0, 7).map((day) => (
+						<span key={day.date}>
+							<strong>{formatForecastDay(day.date)}</strong>
+							{Math.round(day.rain)}% rain
+						</span>
+					))}
+				</div>
 			</div>
 		</section>
 	);
@@ -420,6 +800,7 @@ function weatherFromWttr(data) {
 			precipitationProbability: Number(hour.chanceofrain) || 0,
 			code: weatherCodeFromWttr(hour.weatherCode),
 			wind: Number(hour.windspeedKmph) || 0,
+			humidity: Number(hour.humidity) || 0,
 		})),
 	);
 	const currentHourIndex = Math.max(
@@ -478,7 +859,7 @@ async function searchOpenRouteLocations(query, signal, count = 5) {
 	});
 }
 
-function OpenRouteMap({ route }) {
+function OpenRouteMap({ route, onRouteSummary }) {
 	const mapElement = useRef(null);
 	const [routeState, setRouteState] = useState("loading");
 	const apiKey = import.meta.env.VITE_OPENROUTE_API_KEY;
@@ -572,6 +953,16 @@ function OpenRouteMap({ route }) {
 			})
 			.then((route) => {
 				if (!isActive) return;
+				const durationMinutes = Math.round(
+					Number(route.features?.[0]?.properties?.summary?.duration || 0) /
+						60,
+				);
+				onRouteSummary?.({
+					distanceKm:
+						Number(route.features?.[0]?.properties?.summary?.distance || 0) /
+						1000,
+					durationMinutes,
+				});
 				const routeLayer = L.geoJSON(route, {
 					style: { color: "#d4644e", weight: 5, opacity: 0.9 },
 				}).addTo(map);
@@ -603,6 +994,7 @@ function OpenRouteMap({ route }) {
 		routeOriginCoordinates?.longitude,
 		routeDestinationCoordinates?.latitude,
 		routeDestinationCoordinates?.longitude,
+		onRouteSummary,
 	]);
 
 	return (
@@ -784,11 +1176,18 @@ function App() {
 		() => localStorage.getItem("mausam-dark-mode") === "on",
 	);
 	const [activity, setActivity] = useState(
-		() => localStorage.getItem("mausam-activity") || "Running",
+		() => {
+			const stored = localStorage.getItem("mausam-activity");
+			return ACTIVITY_OPTIONS.includes(stored) ? stored : "Running";
+		},
 	);
 	const [selectedActivities, setSelectedActivities] = useState(() => {
 		const stored = localStorage.getItem("mausam-selected-activities");
-		return stored ? JSON.parse(stored) : ACTIVITY_OPTIONS;
+		if (!stored) return ACTIVITY_OPTIONS;
+		const filtered = JSON.parse(stored).filter((option) =>
+			ACTIVITY_OPTIONS.includes(option),
+		);
+		return filtered.length ? filtered : ACTIVITY_OPTIONS;
 	});
 	const [location, setLocation] = useState("Bengaluru");
 	const [locationCoordinates, setLocationCoordinates] = useState(
@@ -800,6 +1199,8 @@ function App() {
 	const [isHourlyExpanded, setIsHourlyExpanded] = useState(false);
 	const [isForecastExpanded, setIsForecastExpanded] = useState(false);
 	const [weather, setWeather] = useState(null);
+	const [marineWeather, setMarineWeather] = useState(null);
+	const [marineState, setMarineState] = useState("loading");
 	const [weatherState, setWeatherState] = useState("loading");
 	const [weatherSource, setWeatherSource] = useState("Open-Meteo");
 	useEffect(
@@ -823,6 +1224,18 @@ function App() {
 			"mausam-selected-activities",
 			JSON.stringify(selectedActivities),
 		);
+		queueMicrotask(() => {
+			setDayPlanActivities((activities) => {
+				const remaining = activities.filter((item) =>
+					selectedActivities.includes(item),
+				);
+				return remaining.length
+					? remaining
+					: selectedActivities[0]
+						? [selectedActivities[0]]
+						: [];
+			});
+		});
 		if (!selectedActivities.includes(activity)) {
 			queueMicrotask(() => setActivity(selectedActivities[0]));
 		}
@@ -835,7 +1248,7 @@ function App() {
 			setWeatherSource("Open-Meteo");
 		});
 		fetch(
-			`https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=auto&forecast_days=7`,
+			`https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=auto&forecast_days=7`,
 			{ signal: controller.signal },
 		)
 			.then((response) => {
@@ -856,6 +1269,8 @@ function App() {
 							data.hourly.precipitation_probability[
 								currentHourIndex
 							],
+						uv_index: data.hourly.uv_index?.[currentHourIndex],
+						air_quality: null,
 					},
 					date: formatDate(data.current.time),
 					hourly: data.hourly.time
@@ -876,6 +1291,10 @@ function App() {
 							wind: data.hourly.wind_speed_10m[
 								currentHourIndex + index
 							],
+							uv: data.hourly.uv_index?.[currentHourIndex + index],
+							humidity: data.hourly.relative_humidity_2m?.[
+							currentHourIndex + index
+							],
 						})),
 					daily: data.daily.time.map((time, index) => ({
 						date: time,
@@ -883,8 +1302,48 @@ function App() {
 						max: data.daily.temperature_2m_max[index],
 						min: data.daily.temperature_2m_min[index],
 						rain: data.daily.precipitation_probability_max[index],
+						sunrise: data.daily.sunrise?.[index],
+						sunset: data.daily.sunset?.[index],
 					})),
 				});
+				fetch(
+					`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&hourly=us_aqi&timezone=auto&forecast_days=1`,
+					{ signal: controller.signal },
+				)
+					.then((response) =>
+						response.ok ? response.json() : null,
+					)
+					.then((airQuality) => {
+						const values = airQuality?.hourly?.us_aqi;
+						if (!values?.length) return;
+						const aqi = values[0];
+						setWeather((currentWeather) =>
+							currentWeather
+								? {
+										...currentWeather,
+										current: {
+											...currentWeather.current,
+											air_quality: aqi,
+										},
+									}
+								: currentWeather,
+						);
+					})
+					.catch((airQualityError) => {
+						if (airQualityError.name !== "AbortError") {
+							setWeather((currentWeather) =>
+								currentWeather
+									? {
+											...currentWeather,
+											current: {
+												...currentWeather.current,
+												air_quality: null,
+											},
+										}
+									: currentWeather,
+							);
+						}
+					});
 				setWeatherState("ready");
 			})
 			.catch(async (error) => {
@@ -905,6 +1364,33 @@ function App() {
 				} catch (fallbackError) {
 					if (fallbackError.name !== "AbortError")
 						setWeatherState("error");
+				}
+			});
+		return () => controller.abort();
+	}, [locationCoordinates]);
+	useEffect(() => {
+		const controller = new AbortController();
+		const { latitude, longitude } = locationCoordinates;
+		queueMicrotask(() => {
+			setMarineState("loading");
+			setMarineWeather(null);
+		});
+		fetch(
+			`https://marine-api.open-meteo.com/v1/marine?latitude=${latitude}&longitude=${longitude}&hourly=wave_height,sea_surface_temperature&timezone=auto&forecast_days=1`,
+			{ signal: controller.signal },
+		)
+			.then((response) => {
+				if (!response.ok) throw new Error("Marine forecast failed");
+				return response.json();
+			})
+			.then((data) => {
+				setMarineWeather(data);
+				setMarineState("ready");
+			})
+			.catch((error) => {
+				if (error.name !== "AbortError") {
+					setMarineState("error");
+					setMarineWeather(null);
 				}
 			});
 		return () => controller.abort();
@@ -1001,6 +1487,15 @@ function App() {
 			best: "7:30 – 9:00 AM",
 			accent: "leaf",
 		},
+		Health: {
+			eyebrow: "HEALTH CONDITIONS",
+			title: "A balanced window for your wellbeing.",
+			detail: "Use UV, humidity, and air-quality information to make more comfortable outdoor plans.",
+			metric: "Check",
+			metricLabel: "health factors",
+			best: "Choose a comfortable window",
+			accent: "blue",
+		},
 		Walking: {
 			eyebrow: "WALKING CONDITIONS",
 			title: "A pleasant time to get outside.",
@@ -1009,15 +1504,6 @@ function App() {
 			metricLabel: "conditions",
 			best: "7:00 – 9:00 AM",
 			accent: "leaf",
-		},
-		Photography: {
-			eyebrow: "PHOTOGRAPHY CONDITIONS",
-			title: "Soft light and a clear outlook.",
-			detail: "A comfortable window for exploring and capturing the day outdoors.",
-			metric: "Good",
-			metricLabel: "conditions",
-			best: "5:00 – 7:00 PM",
-			accent: "coral",
 		},
 		Picnic: {
 			eyebrow: "PICNIC CONDITIONS",
@@ -1078,7 +1564,14 @@ function App() {
 			hourlyForecast,
 		);
 		const activitySuitability = getActivitySuitability(activity, weather);
-		const dayPlan = dayPlanActivities.flatMap((planActivity) =>
+		const activeDayPlanActivities = dayPlanActivities.filter((planActivity) =>
+			selectedActivities.includes(planActivity),
+		);
+		const surfingNoWater =
+			activity === "Surfing" &&
+			marineState === "ready" &&
+			!(Number(marineWeather?.hourly?.sea_surface_temperature?.[0]) > 0);
+		const dayPlan = activeDayPlanActivities.flatMap((planActivity) =>
 			buildDayPlan(planActivity, hourlyForecast).map((item) => ({
 				...item,
 				activity: planActivity,
@@ -1303,8 +1796,16 @@ function App() {
 						{current.metric}
 						<small>{current.metricLabel}</small>
 					</div>
-					<p>{current.title}</p>
-					<span className="insight-detail">{current.detail}</span>
+					<p>
+						{surfingNoWater
+							? `No water bodies found near ${location}.`
+							: current.title}
+					</p>
+					<span className="insight-detail">
+						{surfingNoWater
+							? `No water bodies found near ${location}.`
+							: current.detail}
+					</span>
 					{activity !== "School pickup" && (
 						<button
 							className="best-time"
@@ -1341,8 +1842,8 @@ function App() {
 								<h2>Your day, at a glance</h2>
 							</div>
 							<span className="day-plan-badge">
-								{dayPlanActivities.length}{" "}
-								{dayPlanActivities.length === 1
+								{activeDayPlanActivities.length}{" "}
+								{activeDayPlanActivities.length === 1
 									? "activity"
 									: "activities"}
 							</span>
@@ -1354,7 +1855,7 @@ function App() {
 									.filter((option) => activityData[option])
 									.map((option) => {
 										const selected =
-											dayPlanActivities.includes(option);
+											activeDayPlanActivities.includes(option);
 										return (
 											<button
 												type="button"
@@ -1405,6 +1906,27 @@ function App() {
 				{activity === "Gardening" && (
 					<FarmGardenAdvisory weather={weather} />
 				)}
+				{["Yoga", "Running", "Exercise", "Cycling"].includes(activity) && (
+					<OutdoorFitnessAdvisory
+						activity={activity}
+						weather={weather}
+						bestWindow={bestActivityWindow}
+					/>
+				)}
+				{activity === "Surfing" && (
+					<SurfingAdvisory
+						marineWeather={marineWeather}
+						marineState={marineState}
+						location={location}
+					/>
+				)}
+				{activity === "Commuting" && (
+					<CommutingAdvisory weather={weather} />
+				)}
+				{["Outdoor event", "Picnic"].includes(activity) && (
+					<EventAdvisory activity={activity} weather={weather} />
+				)}
+				{activity === "Health" && <HealthAdvisory weather={weather} />}
 				<section className="forecast-section">
 					<div className="section-heading">
 						<h2>Today at a glance</h2>
@@ -1472,7 +1994,7 @@ function App() {
 						<div className="full-forecast">
 							<div className="full-forecast-heading">
 								<span className="section-kicker">
-									NEXT 3 DAYS
+									NEXT DAYS
 								</span>
 								<span className="forecast-source">
 									Open-Meteo
@@ -1729,7 +2251,7 @@ function evaluateRouteActivityConditions(activity, forecasts) {
 	return advisories;
 }
 
-function RouteWeatherAlert({ route }) {
+function RouteWeatherAlert({ route, onBestDeparture }) {
 	const [alert, setAlert] = useState(null);
 	const [activityAdvice, setActivityAdvice] = useState(null);
 	const [state, setState] = useState("loading");
@@ -1781,6 +2303,9 @@ function RouteWeatherAlert({ route }) {
 				const highestRisk = risks.sort(
 					(left, right) => right.probability - left.probability,
 				)[0];
+				onBestDeparture?.(
+					getBestRouteDeparture(route.activity || "Commuting", forecasts),
+				);
 				setAlert(highestRisk?.probability >= 40 ? highestRisk : null);
 				setActivityAdvice(
 					evaluateRouteActivityConditions(
@@ -1798,6 +2323,7 @@ function RouteWeatherAlert({ route }) {
 		route,
 		route?.originCoordinates,
 		route?.destinationCoordinates,
+		onBestDeparture,
 	]);
 
 	if (state !== "ready") return null;
@@ -1847,6 +2373,42 @@ function RouteWeatherAlert({ route }) {
 	);
 }
 
+function RouteTimingSummary({ route, summary, bestDeparture }) {
+	const departure = bestDeparture;
+	let arrival = null;
+	if (departure && summary?.durationMinutes) {
+		const totalMinutes =
+			departure.hour * 60 + departure.minute + summary.durationMinutes;
+		arrival = formatClockTime(
+			Math.floor(totalMinutes / 60),
+			totalMinutes % 60,
+		);
+	}
+	return (
+		<section className="route-timing-summary">
+			<div>
+				<span className="section-kicker">TRIP TIMING</span>
+				<strong>{route.origin} → {route.destination}</strong>
+			</div>
+			<div className="route-timing-values">
+				<div>
+					<span>Recommended departure</span>
+					<strong>{departure ? formatClockTime(departure.hour, departure.minute) : "Finding a good time…"}</strong>
+				</div>
+				<div>
+					<span>Arrive around</span>
+					<strong>{arrival || (summary?.durationMinutes ? `${summary.durationMinutes} min after departure` : "Calculating…")}</strong>
+				</div>
+			</div>
+			<small>
+				{summary?.distanceKm
+					? `${summary.distanceKm.toFixed(1)} km · ${summary.durationMinutes} min estimated`
+					: "Checking weather conditions to recommend the best departure time."}
+			</small>
+		</section>
+	);
+}
+
 function RoutesView({
 	onBack,
 	onProfile,
@@ -1854,6 +2416,8 @@ function RoutesView({
 	setIsDarkMode,
 }) {
 	const [isAddingRoute, setIsAddingRoute] = useState(false);
+	const [routeSummary, setRouteSummary] = useState(null);
+	const [bestDeparture, setBestDeparture] = useState(null);
 	const [editingIndex, setEditingIndex] = useState(null);
 	const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
 	const [routeForm, setRouteForm] = useState({
@@ -1993,6 +2557,12 @@ function RoutesView({
 		);
 	};
 	const selectedRoute = savedRoutes[selectedRouteIndex] || savedRoutes[0];
+	useEffect(() => {
+		queueMicrotask(() => {
+			setRouteSummary(null);
+			setBestDeparture(null);
+		});
+	}, [selectedRouteIndex]);
 	return (
 		<>
 			<PageHeader
@@ -2003,9 +2573,22 @@ function RoutesView({
 				isDarkMode={isDarkMode}
 				setIsDarkMode={setIsDarkMode}
 			/>
-			<OpenRouteMap route={selectedRoute} />
+			<OpenRouteMap
+				route={selectedRoute}
+				onRouteSummary={setRouteSummary}
+			/>
+			{selectedRoute && (
+				<RouteTimingSummary
+					route={selectedRoute}
+					summary={routeSummary}
+					bestDeparture={bestDeparture}
+				/>
+			)}
 			{selectedRoute && <TrafficUpdates route={selectedRoute} />}
-			<RouteWeatherAlert route={selectedRoute} />
+			<RouteWeatherAlert
+				route={selectedRoute}
+				onBestDeparture={setBestDeparture}
+			/>
 			<section className="page-section">
 				<div className="section-heading">
 					<div>
